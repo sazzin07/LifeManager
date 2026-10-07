@@ -15,7 +15,6 @@ from typing import List, Optional, Dict, Any
 import jwt
 import bcrypt
 import httpx
-import requests
 from fastapi import FastAPI, APIRouter, Request, HTTPException, Depends, UploadFile, File, Header, Query, Response
 from starlette.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
