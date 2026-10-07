@@ -261,6 +261,20 @@ The AI assistant requires a `GOOGLE_API_KEY` (and `OPENAI_API_KEY` for voice). I
 
 ---
 
+## GitHub
+
+A local Git repository is initialized and committed. To push to GitHub:
+
+```bash
+cd C:\Projects\LifeManager
+git remote add origin https://github.com/sazzin07/LifeManager.git
+git push -u origin main
+```
+
+You will be prompted for your GitHub credentials (or use a configured credential helper / PAT).
+
+---
+
 ## License
 
 Private project for personal use.
