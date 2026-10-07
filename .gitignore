@@ -70,6 +70,8 @@ backend/data/
 *.db
 *.sqlite
 *.sqlite3
+mysql_data/
+phpmyadmin/
 
 # Archive files and large assets
 **/*.zip

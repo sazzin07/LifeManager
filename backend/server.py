@@ -444,7 +444,8 @@ async def create_expense_record(body: ExpenseBody, db) -> dict:
     for s in split_list:
         db.add(Split(
             id=new_id(), transaction_id=txn.id, person_id=s["person_id"],
-            person_name=s["person_name"], amount=s["amount"], is_me=s["is_me"]))
+            person_name=s["person_name"], amount=s["amount"], is_me=s["is_me"],
+            created_at=now_iso()))
 
     inventory_added = []
     if body.add_to_inventory and items:
@@ -906,7 +907,8 @@ async def update_transaction(tid: str, body: TxnUpdate, user: dict = Depends(get
                 await db.delete(s)
             for s in new_splits:
                 db.add(Split(id=new_id(), transaction_id=t.id, person_id=s["person_id"],
-                             person_name=s["person_name"], amount=s["amount"], is_me=s["is_me"]))
+                             person_name=s["person_name"], amount=s["amount"], is_me=s["is_me"],
+                             created_at=now_iso()))
             await db.flush()
         elif len(splits) > 1 and old_gross > 0:
             factor = new_gross / old_gross
@@ -917,7 +919,8 @@ async def update_transaction(tid: str, body: TxnUpdate, user: dict = Depends(get
             for s in splits:
                 await db.delete(s)
             db.add(Split(id=new_id(), transaction_id=t.id, person_id="me",
-                         person_name="Me", amount=new_gross, is_me=True))
+                         person_name="Me", amount=new_gross, is_me=True,
+                         created_at=now_iso()))
             t.personal_amount = new_gross
             await db.flush()
         t.gross_amount = new_gross

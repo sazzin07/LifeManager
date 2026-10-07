@@ -71,6 +71,7 @@ class Split(Base):
     person_name = Column(String(255), nullable=False)
     amount = Column(Float, nullable=False, default=0.0)
     is_me = Column(Boolean, nullable=False, default=False)
+    created_at = Column(String(50), nullable=False)
 
     transaction = relationship("Transaction", back_populates="splits")
 
