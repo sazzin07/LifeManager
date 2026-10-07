@@ -9,6 +9,7 @@ import json
 import logging
 import tempfile
 import re
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional, Dict, Any
 
@@ -37,7 +38,18 @@ OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY', '').strip() or None
 UPLOAD_DIR = ROOT_DIR / "uploads"
 PHOTOS_DIR = UPLOAD_DIR / "photos"
 
-app = FastAPI(title="Life Manager")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    ensure_upload_dirs()
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    await seed()
+    logger.info("Life Manager ready.")
+    yield
+    await engine.dispose()
+
+
+app = FastAPI(title="Life Manager", lifespan=lifespan)
 api_router = APIRouter(prefix="/api")
 
 logging.basicConfig(level=logging.INFO)
@@ -2208,23 +2220,14 @@ async def seed_transactions(db):
         await db.commit()
 
 
-@app.on_event("startup")
-async def on_startup():
-    ensure_upload_dirs()
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    await seed()
-    logger.info("Life Manager ready.")
-
-
-@app.on_event("shutdown")
-async def shutdown():
-    await engine.dispose()
-
-
 @api_router.get("/")
 async def root():
     return {"app": "Life Manager", "status": "ok"}
+
+
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
 
 
 app.include_router(api_router)
