@@ -12,7 +12,7 @@ A private, single-user personal life-management application — forked and migra
 - **Yarn** 1.22+ (or npm)
 - **Python** 3.11+
 - **MySQL** 8.0+ (local install, or Docker on a machine with Docker available)
-- **phpMyAdmin** (included in `docker-compose.yml`)
+- **phpMyAdmin** (included in `docker-compose.yml`, or installable standalone with PHP)
 
 ---
 
@@ -93,6 +93,33 @@ docker-compose up -d
 
 - phpMyAdmin: http://localhost:8080
 - MySQL: `localhost:3306`
+
+### Database + phpMyAdmin (without Docker)
+
+If Docker is unavailable, you can run MySQL and phpMyAdmin directly:
+
+1. Install and start MySQL 8.0+ locally.
+2. Create the database and user (see Installation step 3).
+3. Install PHP 8.2+ and download [phpMyAdmin](https://www.phpmyadmin.net/downloads/).
+4. Place phpMyAdmin in a `phpmyadmin/` folder at the project root and create a minimal `phpmyadmin/config.inc.php`:
+
+```php
+<?php
+$cfg['blowfish_secret'] = 'your_random_secret_here';
+$i = 1;
+$cfg['Servers'][$i]['auth_type'] = 'cookie';
+$cfg['Servers'][$i]['host'] = 'localhost';
+$cfg['Servers'][$i]['port'] = '3306';
+```
+
+5. Start the PHP built-in server:
+
+```bash
+cd phpmyadmin
+php -S 0.0.0.0:8080
+```
+
+phpMyAdmin will be available at http://localhost:8080.
 
 ### Backend
 
