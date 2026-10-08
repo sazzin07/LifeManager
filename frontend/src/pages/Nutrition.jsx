@@ -21,15 +21,15 @@ export default function Nutrition() {
       refreshAll();
     } catch { toast.error("Could not cook recipe"); }
   };
+  const mealList = useMemo(() => meals || [], [meals]);
   const tot = useMemo(() => {
-    const arr = meals || [];
     return {
-      cal: arr.reduce((s, x) => s + (x.calories || 0), 0),
-      p: arr.reduce((s, x) => s + (x.protein || 0), 0),
-      c: arr.reduce((s, x) => s + (x.carbs || 0), 0),
-      f: arr.reduce((s, x) => s + (x.fat || 0), 0),
+      cal: mealList.reduce((s, x) => s + (x.calories || 0), 0),
+      p: mealList.reduce((s, x) => s + (x.protein || 0), 0),
+      c: mealList.reduce((s, x) => s + (x.carbs || 0), 0),
+      f: mealList.reduce((s, x) => s + (x.fat || 0), 0),
     };
-  }, [meals]);
+  }, [mealList]);
 
   return (
     <div className="space-y-6">
@@ -41,12 +41,12 @@ export default function Nutrition() {
         <StatCard testid="nutri-carbs" label="Carbs" value={`${Math.round(tot.c)}g`} accent="text-amber-500" hint={`/ ${TARGETS.c}g`} />
         <StatCard testid="nutri-fat" label="Fat" value={`${Math.round(tot.f)}g`} accent="text-red-500" hint={`/ ${TARGETS.f}g`} />
       </div>
-      {loading ? <div className="skeleton h-40 rounded-2xl" /> : arr.length === 0 ? (
+      {loading ? <div className="skeleton h-40 rounded-2xl" /> : mealList.length === 0 ? (
         <Card><EmptyState icon={Utensils} title="No meals logged today" sub="Tell the assistant what you ate and it will estimate the nutrition." action={<Button onClick={() => openAI("I ate ")} className="bg-emerald-600 hover:bg-emerald-700 text-white"><Sparkles className="h-4 w-4 mr-1" />Log a meal</Button>} /></Card>
       ) : (
         <Card>
           <div className="divide-y divide-border">
-            {arr.map((m) => (
+            {mealList.map((m) => (
               <div key={m.id} className="flex items-center gap-3 px-5 py-3 group">
                 <div className="h-9 w-9 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 grid place-items-center shrink-0"><Utensils className="h-4 w-4 text-emerald-600" /></div>
                 <div className="flex-1 min-w-0">
