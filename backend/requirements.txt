@@ -2,6 +2,7 @@ fastapi>=0.115.0
 uvicorn==0.25.0
 sqlalchemy[asyncio]==2.0.30
 aiomysql==0.2.0
+cryptography>=42.0.0
 python-dotenv>=1.0.1
 pydantic>=2.6.4
 pyjwt>=2.10.1
