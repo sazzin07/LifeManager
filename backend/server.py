@@ -9,6 +9,7 @@ import json
 import logging
 import tempfile
 import re
+import asyncio
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional, Dict, Any
@@ -1595,23 +1596,18 @@ async def parse_receipt(body: AIChatBody, user: dict = Depends(get_current_user)
               'Only include line items and prices you can actually read. NEVER invent prices or a store name. '
               'If the image is not clearly a receipt, or you cannot read it, return {"merchant": "", "items": []} — do NOT guess. '
               'Respond with JSON only.')
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GOOGLE_API_KEY}"
     payload = {
         "contents": [{"role": "user", "parts": [{"text": prompt}, {"inlineData": {"mimeType": mime, "data": b64}}]}],
         "generationConfig": {"responseMimeType": "application/json"}
     }
     try:
-        async with httpx.AsyncClient(timeout=120) as client:
-            resp = await client.post(url, json=payload)
-            if resp.status_code != 200:
-                raise HTTPException(resp.status_code, f"Gemini error: {resp.text}")
-            data = resp.json()
-            text = ""
-            for cand in data.get("candidates", []):
-                for part in cand.get("content", {}).get("parts", []):
-                    text += part.get("text", "")
-            m = re.search(r"\{.*\}", text, re.S)
-            parsed = json.loads(m.group(0)) if m else {"items": []}
+        data = await _gemini_generate(payload, timeout=30.0)
+        text = ""
+        for cand in data.get("candidates", []):
+            for part in cand.get("content", {}).get("parts", []):
+                text += part.get("text", "")
+        m = re.search(r"\{.*\}", text, re.S)
+        parsed = json.loads(m.group(0)) if m else {"items": []}
     except Exception as e:
         logger.exception("receipt parse failed")
         raise HTTPException(500, f"Could not read receipt: {e}")
@@ -1623,6 +1619,40 @@ async def parse_receipt(body: AIChatBody, user: dict = Depends(get_current_user)
 # ---------------------------------------------------------------------------
 # AI Assistant with tools
 # ---------------------------------------------------------------------------
+GEMINI_MODELS = ["gemini-flash-latest", "gemini-flash-lite-latest", "gemini-3-flash-preview"]
+GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"
+
+
+async def _gemini_generate(payload: dict, timeout: float = 20.0, retries: int = 3) -> dict:
+    """Call Gemini generateContent with retries and model fallback."""
+    if not GOOGLE_API_KEY:
+        raise HTTPException(503, "Google API key not configured")
+    last_error = None
+    for model in GEMINI_MODELS:
+        url = f"{GEMINI_BASE_URL}/{model}:generateContent?key={GOOGLE_API_KEY}"
+        for attempt in range(retries):
+            try:
+                async with httpx.AsyncClient(timeout=timeout) as client:
+                    resp = await client.post(url, json=payload)
+                    if resp.status_code == 200:
+                        return resp.json()
+                    # If model is unavailable/not found, try next model immediately
+                    if resp.status_code in (404, 429):
+                        last_error = f"{model}: {resp.status_code} {resp.text[:200]}"
+                        break
+                    last_error = f"{model}: {resp.status_code} {resp.text[:200]}"
+                    # Retry on 5xx / empty errors
+                    if resp.status_code < 500:
+                        raise HTTPException(resp.status_code, f"Gemini error: {resp.text}")
+            except HTTPException:
+                raise
+            except Exception as e:
+                last_error = f"{model}: {type(e).__name__} {str(e)[:200]}"
+            if attempt < retries - 1:
+                await asyncio.sleep(2 ** attempt)
+    raise HTTPException(503, f"Gemini unavailable. Last error: {last_error}")
+
+
 AI_TOOLS = [
     {"type": "function", "function": {
         "name": "create_expense",
@@ -1960,45 +1990,39 @@ async def ai_chat(body: AIChatBody, user: dict = Depends(get_current_user), db=D
         user_msg = f"Recent conversation so far:\n{convo}\n\nNew message from {OWNER_NAME}: {body.message}"
 
     contents = _build_contents(session_id, history, user_msg, body.image_base64)
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GOOGLE_API_KEY}"
 
     created = []
     tool_summary = []
     reply = ""
     try:
-        async with httpx.AsyncClient(timeout=120) as client:
+        payload = {"systemInstruction": {"parts": [{"text": system}]},
+                   "contents": contents, "tools": _to_gemini_tools(AI_TOOLS),
+                   "toolConfig": {"functionCallingConfig": {"mode": "AUTO"}}}
+        data = await _gemini_generate(payload, timeout=30.0)
+        guard = 0
+        while guard < 6:
+            guard += 1
+            candidate = data.get("candidates", [{}])[0]
+            content = candidate.get("content", {})
+            parts = content.get("parts", [])
+            tool_calls = [p["functionCall"] for p in parts if p.get("functionCall")]
+            text_parts = [p.get("text", "") for p in parts if p.get("text")]
+            reply = "\n".join(text_parts).strip()
+            if not tool_calls:
+                break
+
+            # append model function calls and thought signatures exactly as returned
+            contents.append({"role": "model", "parts": parts})
+            # append user function responses
+            for tc in tool_calls:
+                args = tc.get("args", {})
+                result = await dispatch_tool(tc["name"], args, created, db)
+                tool_summary.append({"tool": tc["name"], "args": args})
+                contents.append({"role": "user", "parts": [{"functionResponse": {"name": tc["name"], "response": {"result": result}}}]})
             payload = {"systemInstruction": {"parts": [{"text": system}]},
                        "contents": contents, "tools": _to_gemini_tools(AI_TOOLS),
                        "toolConfig": {"functionCallingConfig": {"mode": "AUTO"}}}
-            response = await client.post(url, json=payload)
-            if response.status_code != 200:
-                raise HTTPException(response.status_code, f"Gemini error: {response.text}")
-            data = response.json()
-            guard = 0
-            while guard < 6:
-                guard += 1
-                candidate = data.get("candidates", [{}])[0]
-                content = candidate.get("content", {})
-                parts = content.get("parts", [])
-                tool_calls = [p["functionCall"] for p in parts if p.get("functionCall")]
-                text_parts = [p.get("text", "") for p in parts if p.get("text")]
-                reply = "\n".join(text_parts).strip()
-                if not tool_calls:
-                    break
-                # append model function calls
-                contents.append({"role": "model", "parts": [{"functionCall": tc} for tc in tool_calls]})
-                # append user function responses
-                for tc in tool_calls:
-                    args = tc.get("args", {})
-                    result = await dispatch_tool(tc["name"], args, created, db)
-                    tool_summary.append({"tool": tc["name"], "args": args})
-                    contents.append({"role": "user", "parts": [{"functionResponse": {"name": tc["name"], "response": result}}]})
-                response = await client.post(url, json={"systemInstruction": {"parts": [{"text": system}]},
-                                                          "contents": contents, "tools": _to_gemini_tools(AI_TOOLS),
-                                                          "toolConfig": {"functionCallingConfig": {"mode": "AUTO"}}})
-                if response.status_code != 200:
-                    raise HTTPException(response.status_code, f"Gemini error: {response.text}")
-                data = response.json()
+            data = await _gemini_generate(payload, timeout=30.0)
     except HTTPException:
         raise
     except Exception as e:
